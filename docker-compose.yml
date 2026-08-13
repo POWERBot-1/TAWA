@@ -1,0 +1,33 @@
+# TAWA — single-service stack (all-in-one: API + web + embedded SQLite).
+# Convenience only — the plain Dockerfile is fully self-sufficient.
+#
+#   docker compose up --build        → http://localhost:8080
+#   docker compose run --rm tawa-test → run the 30 automated tests in-container
+services:
+  tawa:
+    build: .
+    image: tawa:1.0.0
+    ports:
+      - "8080:8080"
+    environment:
+      TAWA_ENV: production
+      TAWA_SESSION_TTL_HOURS: "12"
+      # Override webhook secrets for anything beyond the sandbox:
+      # TAWA_WEBHOOK_SECRET_MPESA: "change-me"
+      # TAWA_WEBHOOK_SECRET_CARD: "change-me"
+      # Terminating TLS at a proxy? Mark cookies Secure:
+      # TAWA_COOKIE_SECURE: "true"
+    volumes:
+      - tawa-data:/data
+    restart: unless-stopped
+
+  # Optional: run the automated suite inside the same image.
+  tawa-test:
+    build:
+      context: .
+      target: test
+    image: tawa:1.0.0-test
+    profiles: ["test"]
+
+volumes:
+  tawa-data:

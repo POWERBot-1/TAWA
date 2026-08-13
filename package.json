@@ -1,0 +1,20 @@
+{
+  "name": "tawa",
+  "version": "1.0.0",
+  "description": "TAWA — Run Your Hardware Business. A JATA Qi-native, multi-tenant, white-label business operating system for hardware and construction-supply businesses.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js --seed",
+    "migrate": "node server/db/migrate.js",
+    "seed": "node server/seed/seed.js",
+    "test": "node --test tests/",
+    "package": "node scripts/package.js",
+    "validate": "node scripts/validate.js"
+  },
+  "license": "UNLICENSED"
+}

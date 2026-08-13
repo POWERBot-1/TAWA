@@ -1,0 +1,23 @@
+# Runtime data — never commit databases, WAL files, or uploaded files
+data/
+*.db
+*.db-wal
+*.db-shm
+uploads/
+
+# Node
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+dist/
+out/
+*.tgz

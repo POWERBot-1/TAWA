@@ -1,0 +1,13 @@
+# Context hygiene — the runtime image COPYies package.json, server/, web/ only;
+# the `test` target additionally COPYies tests/ (do NOT ignore tests/).
+.git
+data
+out
+node_modules
+*.log
+.env
+.env.*
+!.env.example
+Dockerfile
+docker-compose.yml
+.dockerignore

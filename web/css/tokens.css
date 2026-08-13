@@ -1,0 +1,60 @@
+/* ============================================================
+   TAWA Design Tokens — "Industrial Precision" system
+   Solid surfaces, 1px structure lines, brand-driven accent.
+   No gradients. No emojis. Lucide-style iconography.
+   ============================================================ */
+
+:root {
+  /* Structure (dark, neutral-warm charcoal) */
+  --bg: #0C0F13;
+  --bg-soft: #0F1319;
+  --surface: #12161D;
+  --surface-2: #171D26;
+  --surface-3: #1D242F;
+  --line: #232B36;
+  --line-strong: #303B49;
+
+  --text: #EBEEF2;
+  --text-2: #A8B2BE;
+  --text-3: #6C7885;
+  --text-4: #4A545F;
+
+  /* Brand accent — overridden at runtime per tenant (white-label) */
+  --brand: #F0A824;
+  --brand-ink: #171106;
+  --brand-soft: rgba(240, 168, 36, 0.12);
+  --brand-line: rgba(240, 168, 36, 0.38);
+
+  /* Semantic */
+  --ok: #3FB77E;
+  --ok-soft: rgba(63, 183, 126, 0.13);
+  --warn: #E39B3D;
+  --warn-soft: rgba(227, 155, 61, 0.13);
+  --danger: #DF6157;
+  --danger-soft: rgba(223, 97, 87, 0.13);
+  --info: #6AA5C4;
+  --info-soft: rgba(106, 165, 196, 0.13);
+
+  /* Type */
+  --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-14: 14px; --fs-15: 15px;
+  --fs-18: 18px; --fs-22: 22px; --fs-28: 28px; --fs-36: 36px;
+
+  /* Radii */
+  --r-6: 6px; --r-8: 8px; --r-10: 10px; --r-12: 12px; --r-16: 16px; --r-20: 20px;
+
+  /* Elevation — crisp, low, no color glow */
+  --sh-1: 0 1px 2px rgba(0,0,0,0.35);
+  --sh-2: 0 4px 16px rgba(0,0,0,0.40);
+  --sh-3: 0 12px 40px rgba(0,0,0,0.50);
+
+  /* Layout */
+  --topbar-h: 60px;
+  --sidebar-w: 252px;
+  --sidebar-w-min: 64px;
+  --content-max: 1440px;
+
+  --ease: cubic-bezier(0.25, 0.6, 0.25, 1);
+  --dur: 160ms;
+}
