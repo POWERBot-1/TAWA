@@ -19,7 +19,8 @@
   ],
   "demo_tenants": [
     { "code": "alpha", "name": "ALPHA HARDWARE", "plan": "BUSINESS", "owner": "owner@alpha-hardware.co.ke", "password": "Alpha#2026!" },
-    { "code": "buildpro", "name": "BUILDPRO SUPPLIES", "plan": "PROFESSIONAL", "white_label": true, "owner": "owner@buildpro.co.ke", "password": "Build#2026!" }
+    { "code": "buildpro", "name": "BUILDPRO SUPPLIES", "plan": "PROFESSIONAL", "white_label": true, "owner": "owner@buildpro.co.ke", "password": "Build#2026!" },
+    { "code": "kilimani", "name": "KILIMANI BUILDERS", "plan": "STARTER", "white_label": true, "owner": "owner@kilimani-builders.co.ke", "password": "Kilimani#2026!" }
   ],
   "platform_admin": { "email": "platform@tawa.app", "password": "Admin#2026!" },
   "integrations": {
@@ -37,7 +38,9 @@
     "full audit trail of sensitive actions",
     "seed-flag idempotent; migrations forward-only and enumerable"
   ],
-  "testing": { "command": "npm test", "suites": ["tests/invariants.test.js", "tests/acceptance.test.js"], "checks": 30 },
+  "testing": { "command": "npm test", "suites": ["tests/invariants.test.js", "tests/acceptance.test.js", "tests/commercial.test.js"], "checks": 43 },
   "packaging": { "command": "npm run package", "output": "out/" },
-  "validation": { "command": "npm run validate" }
+  "validation": { "command": "npm run validate", "checks": 8 },
+  "audit": "docs/AUDIT.md",
+  "docs": ["README.md", "ARCHITECTURE.md", "docs/API.md", "docs/SECURITY.md", "docs/ADMIN.md", "docs/AUDIT.md"]
 }

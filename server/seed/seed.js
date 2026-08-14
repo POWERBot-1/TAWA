@@ -8,7 +8,7 @@ import { UNITS, catalogFor } from './catalog.js';
 import { createOrder, fulfilOrder } from '../modules/sales.js';
 import { createIntent, initiateIntent, verifyAndSettle } from '../modules/payments.js';
 import { getProvider } from '../adapters/payments.js';
-import { postMovement } from '../modules/inventory.js';
+import { postMovement, positionFor } from '../modules/inventory.js';
 import { generateInsights } from '../modules/ai.js';
 import { sendNotification } from '../adapters/messaging.js';
 
@@ -62,6 +62,13 @@ export function seedAll(db) {
     email: 'owner@buildpro.co.ke', password: 'Build#2026!',
     catalog: catalogFor('buildpro'), seed: 777, whiteLabel: 1,
   });
+  seedTenant(db, {
+    code: 'kilimani', name: 'Kilimani Builders Yard', businessName: 'KILIMANI BUILDERS',
+    monogram: 'KB', primary: '#7C9A2E', accent: '#C2410C', industry: 'HARDWARE', plan: 'STARTER',
+    tagline: 'The yard that knows your site.',
+    email: 'owner@kilimani-builders.co.ke', password: 'Kilimani#2026!',
+    catalog: catalogFor('kilimani'), seed: 2024, whiteLabel: 1,
+  });
 }
 
 function seedTenant(db, cfg) {
@@ -91,10 +98,12 @@ function seedTenant(db, cfg) {
     }
     return uid;
   };
-  const dom = cfg.code === 'alpha' ? 'alpha-hardware.co.ke' : 'buildpro.co.ke';
+  const dom = { alpha: 'alpha-hardware.co.ke', buildpro: 'buildpro.co.ke', kilimani: 'kilimani-builders.co.ke' }[cfg.code] || `${cfg.code}.co.ke`;
   const names = cfg.code === 'alpha'
     ? { manager: 'Brian Kimani', cashier: 'Carol Nekesa', keeper: 'David Mwangi', finance: 'Eunice Wafula', sales: 'Felix Barasa', hr: 'Grace Atieno', driver: 'Peter Ouma' }
-    : { manager: 'Stella Wanjiru', cashier: 'Tom Kiprop', keeper: 'Victor Njoroge', finance: 'Winnie Achieng', sales: 'Oscar Mutua', hr: 'Linda Cherono', driver: 'James Kariuki' };
+    : cfg.code === 'kilimani'
+      ? { manager: 'Naomi Kerubo', cashier: 'Ian Mwadime', keeper: 'Ruth Nyokabi', finance: 'Collins Oduor', sales: 'Faith Njambi', hr: 'Moses Tinga', driver: 'Eliud Wanyonyi' }
+      : { manager: 'Stella Wanjiru', cashier: 'Tom Kiprop', keeper: 'Victor Njoroge', finance: 'Winnie Achieng', sales: 'Oscar Mutua', hr: 'Linda Cherono', driver: 'James Kariuki' };
   const pw = cfg.password;
   const users = {
     owner: q.one(db, `SELECT id FROM users WHERE tenant_id = ? AND email = ?`, t, cfg.email).id,
@@ -109,10 +118,10 @@ function seedTenant(db, cfg) {
   // --- Branches & warehouses ---
   const branch = id('br');
   q.run(db, `INSERT INTO branches (id, tenant_id, code, name, address, phone, created_at) VALUES (?,?,?,?,?,?,?)`,
-    branch, t, 'HQ', cfg.code === 'alpha' ? 'Nairobi Main' : 'Mombasa Road HQ', 'Industrial Area, Nairobi', '+254 700 000 001', now);
+    branch, t, 'HQ', cfg.code === 'alpha' ? 'Nairobi Main' : cfg.code === 'kilimani' ? 'Kilimani Yard HQ' : 'Mombasa Road HQ', cfg.code === 'kilimani' ? 'Argwings Kodhek Rd, Kilimani' : 'Industrial Area, Nairobi', '+254 700 000 001', now);
   const branch2 = id('br');
   q.run(db, `INSERT INTO branches (id, tenant_id, code, name, address, phone, created_at) VALUES (?,?,?,?,?,?,?)`,
-    branch2, t, 'BR2', cfg.code === 'alpha' ? 'Thika Branch' : 'Kisumu Depot', cfg.code === 'alpha' ? 'Thika Road' : 'Milimani, Kisumu', '+254 700 000 002', now);
+    branch2, t, 'BR2', cfg.code === 'alpha' ? 'Thika Branch' : cfg.code === 'kilimani' ? 'Kileleshwa Depot' : 'Kisumu Depot', cfg.code === 'alpha' ? 'Thika Road' : cfg.code === 'kilimani' ? 'Othaya Rd, Kileleshwa' : 'Milimani, Kisumu', '+254 700 000 002', now);
   const wh1 = id('wh'); const wh2 = id('wh');
   q.run(db, `INSERT INTO warehouses (id, tenant_id, branch_id, code, name, address, created_at) VALUES (?,?,?,?,?,?,?)`, wh1, t, branch, 'MAIN', 'Main Warehouse', 'Ground floor, main store', now);
   q.run(db, `INSERT INTO warehouses (id, tenant_id, branch_id, code, name, address, created_at) VALUES (?,?,?,?,?,?,?)`, wh2, t, branch2, 'YARD', 'Open Yard Store', 'Backyard yard storage', now);
@@ -162,11 +171,17 @@ function seedTenant(db, cfg) {
       ['Faith Moraa', '+254 789 777 888', 'WHOLESALE', null], ['George Kilonzo', '+254 790 888 999', 'RETAIL', null],
       ['Hellen Chebet', '+254 701 999 000', 'CONTRACTOR', 'Chebet Builders'], ['Ian Mwangi', '+254 712 000 111', 'RETAIL', null],
     ]
-    : [
-      ['Rose Auma', '+254 723 101 202', 'CONTRACTOR', 'Auma Contractors'], ['Nick Otis', '+254 734 202 303', 'WHOLESALE', null],
-      ['Cynthia Adhiambo', '+254 745 303 404', 'RETAIL', null], ['Dennis Koech', '+254 756 404 505', 'CONTRACTOR', 'Koech & Partners'],
-      ['Mercy Kendi', '+254 767 505 606', 'RETAIL', null], ['Ali Hassan', '+254 778 606 707', 'CORPORATE', 'Hassan Developers'],
-    ];
+    : cfg.code === 'kilimani'
+      ? [
+        ['Tabitha Wambua', '+254 720 909 111', 'CONTRACTOR', 'Wambua Sites'], ['Josphat Irungu', '+254 731 808 222', 'WHOLESALE', null],
+        ['Caroline Syombua', '+254 742 707 333', 'RETAIL', null], ['Benard Maiyo', '+254 753 606 444', 'CONTRACTOR', 'Maiyo Frame Works'],
+        ['Purity Kanini', '+254 764 505 555', 'CORPORATE', 'Kanini Homes'], ['George Onyiego', '+254 775 404 666', 'RETAIL', null],
+      ]
+      : [
+        ['Rose Auma', '+254 723 101 202', 'CONTRACTOR', 'Auma Contractors'], ['Nick Otis', '+254 734 202 303', 'WHOLESALE', null],
+        ['Cynthia Adhiambo', '+254 745 303 404', 'RETAIL', null], ['Dennis Koech', '+254 756 404 505', 'CONTRACTOR', 'Koech & Partners'],
+        ['Mercy Kendi', '+254 767 505 606', 'RETAIL', null], ['Ali Hassan', '+254 778 606 707', 'CORPORATE', 'Hassan Developers'],
+      ];
   const customerIds = [];
   customerDefs.forEach(([name, phone, type, company], i) => {
     const cid = id('cus');
@@ -228,7 +243,7 @@ function seedTenant(db, cfg) {
 
   // --- Historical orders (last 45 days) to power analytics/AI ---
   const skus = cfg.catalog.products.map(p => p[0]);
-  const orderSeeds = cfg.code === 'alpha' ? 26 : 16;
+  const orderSeeds = cfg.code === 'alpha' ? 26 : cfg.code === 'kilimani' ? 12 : 16;
   const orderIds = [];
   for (let d = 45; d >= 0; d -= Math.max(1, Math.floor(rng() * 4))) {
     const date = new Date(Date.now() - d * 86400_000 + Math.floor(rng() * 8 * 3600_000));
@@ -241,10 +256,16 @@ function seedTenant(db, cfg) {
         const sku = skus[Math.floor(rng() * skus.length)];
         if (used.has(sku)) continue;
         used.add(sku);
-        items.push({ product_id: prodIds[sku], qty: [1, 2, 3, 5, 10, 20][Math.floor(rng() * 6)] });
+        // Clamp to what MAIN warehouse can actually supply — demo orders must never fail.
+        const want = [1, 2, 3, 5, 10, 20][Math.floor(rng() * 6)];
+        const pos = positionFor(db, t, prodIds[sku], wh1);
+        const avail = Math.max(0, (pos?.on_hand ?? 0) - (pos?.reserved ?? 0));
+        if (avail < 1) continue;
+        items.push({ product_id: prodIds[sku], qty: Math.min(want, avail) });
       }
       const cust = customerIds[Math.floor(rng() * customerIds.length)];
       const idem = `seed-${cfg.code}-${d}-${k}`;
+      if (items.length === 0) continue;
       try {
         const result = tx(db, () => {
           const order = createOrder(db, {
@@ -314,9 +335,9 @@ function seedTenant(db, cfg) {
   const cmpId = id('cmp');
   q.run(db, `INSERT INTO campaigns (id, tenant_id, name, description, objective, segment, offer, channels, budget, status, created_by, created_at, updated_at)
       VALUES (?,?,?,?,?,?,?,?,?, 'DRAFT', ?, ?, ?)`,
-    cmpId, t, cfg.code === 'alpha' ? 'Roofing Week' : 'Contractor Cement Week',
+    cmpId, t, cfg.code === 'alpha' ? 'Roofing Week' : cfg.code === 'kilimani' ? 'Site Start Bundles' : 'Contractor Cement Week',
     'Targeted promotion for high-intent buyers', 'Revenue growth + reactivation',
-    'MARKETING_OPTIN', JSON.stringify({ message: cfg.code === 'alpha' ? 'Roofing week: 5% off mabati + nails bundles!' : 'Cement week: contractor-only bundle pricing!' }),
+    'MARKETING_OPTIN', JSON.stringify({ message: cfg.code === 'alpha' ? 'Roofing week: 5% off mabati + nails bundles!' : cfg.code === 'kilimani' ? 'New site? Get your first-week bundle pricing.' : 'Cement week: contractor-only bundle pricing!' }),
     JSON.stringify(['SMS']), 5000 * 100, users.manager, now, now);
   q.run(db, `INSERT INTO promotions (id, tenant_id, code, name, type, value, conditions, is_active, created_at)
              VALUES (?,?,?,?, 'PERCENT', 5, ?, 1, ?)`,

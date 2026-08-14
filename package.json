@@ -12,7 +12,7 @@
     "dev": "node server/index.js --seed",
     "migrate": "node server/db/migrate.js",
     "seed": "node server/seed/seed.js",
-    "test": "node --test tests/",
+    "test": "node --test tests/*.test.js",
     "package": "node scripts/package.js",
     "validate": "node scripts/validate.js"
   },

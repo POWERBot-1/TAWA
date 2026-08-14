@@ -52,7 +52,7 @@ export function sendNotification(db, n) {
     provider = CHANNEL_PROVIDER[channel];
     providerRef = result.ref;
     status = result.ok ? result.status : 'FAILED';
-    if (n.tenantId) meter(db, n.tenantId, 'messages_sent');
+    try { meter(db, n.tenantId, 'messages_sent'); } catch { /* metering must never break delivery */ }
   } else if (channel === 'IN_APP' && n.recipientKind === 'ROLE') {
     // role broadcast → materialize per-user IN_APP rows
     const users = q.all(db,

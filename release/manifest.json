@@ -1,0 +1,33 @@
+{
+  "product": "TAWA",
+  "tagline": "Run Your Hardware Business.",
+  "version": "1.0.0",
+  "packaged_at": "2026-08-14T18:00:49.324Z",
+  "archive": "tawa-1.0.0-20260814.tar.gz",
+  "sha256": "e7d89bf3bef2e7e77bc0b76ca0701b9740ba7c79fce24b75227750c9475e1574",
+  "files": 103,
+  "bytes": 250362,
+  "includes": {
+    "runtime": [
+      "server/",
+      "web/"
+    ],
+    "migrations": "server/db/migrations/",
+    "tests": "tests/",
+    "deploy": [
+      "Dockerfile",
+      "docker-compose.yml",
+      ".env.example"
+    ],
+    "docs": [
+      "README.md",
+      "ARCHITECTURE.md",
+      "docs/API.md"
+    ]
+  },
+  "runtime": {
+    "node": ">=22.5",
+    "dependencies": 0,
+    "database": "embedded sqlite (node:sqlite, WAL)"
+  }
+}

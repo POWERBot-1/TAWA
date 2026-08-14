@@ -13,7 +13,12 @@ import { ROLE_TEMPLATES, PERMISSIONS } from '../core/rbac.js';
  */
 function mustPlatformAdmin(req) {
   const auth = mustAuth(req);
-  if (auth.session.tenant_id) throw err.forbidden('Control plane is for platform operators only');
+  if (auth.session.tenant_id) throw err.forbidden('Tenant users cannot call the control plane. Missing permission: platform.admin');
+  if (process.env.TAWA_ADMIN_BOOTSTRAP_SECRET) {
+    if (req.headers['x-tawa-internal'] !== process.env.TAWA_ADMIN_BOOTSTRAP_SECRET) {
+      throw err.forbidden('Control plane requires the internal bootstrap header');
+    }
+  }
   return auth;
 }
 
@@ -43,6 +48,21 @@ export function registerAdmin(router, db) {
       LEFT JOIN subscriptions s ON s.tenant_id = t.id
       ORDER BY t.created_at`);
     ok(res, rows);
+  });
+
+  /** Change a tenant's plan (upgrade/downgrade), effective immediately (§14, §50). */
+  router.post('/api/v1/admin/tenants/:id/plan', async (req, res) => {
+    mustPlatformAdmin(req);
+    const body = await readBody(req);
+    const planId = reqOneOf(reqStr(body.plan_id, 'plan_id'), 'plan_id', PLANS.map(p => p.id));
+    const t = q.one(db, `SELECT * FROM tenants WHERE id = ?`, req.params.id);
+    if (!t) throw err.notFound('Tenant not found');
+    const sub = q.one(db, `SELECT * FROM subscriptions WHERE tenant_id = ?`, t.id);
+    if (!sub) throw err.conflict('Tenant has no subscription');
+    const from = sub.plan_id;
+    q.run(db, `UPDATE subscriptions SET plan_id = ?, updated_at = ? WHERE id = ?`, planId, nowIso(), sub.id);
+    audit(db, { tenantId: t.id, actorId: req.auth.user.id, actorName: req.auth.user.name, action: 'admin.tenant.plan', resource: 'subscription', resourceId: sub.id, metadata: { from, to: planId } });
+    ok(res, { id: t.id, plan: planId, from });
   });
 
   /** Suspend / restore tenants (§46, §55). Never destroys data. */
@@ -96,6 +116,16 @@ export function registerAdmin(router, db) {
     const tenants = q.all(db, `SELECT id, code, name FROM tenants`);
     ok(res, tenants.map(t => ({ tenant: t.code, meters: usageFor(db, t.id) })));
   });
+  /** Platform event stream + dead-letter queue (§40, §62). */
+  router.get('/api/v1/admin/events', (req, res) => {
+    mustPlatformAdmin(req);
+    ok(res, q.all(db, `SELECT id, tenant_id, type, status, attempts, created_at, processed_at FROM events ORDER BY id DESC LIMIT 200`));
+  });
+  router.get('/api/v1/admin/events/dlq', (req, res) => {
+    mustPlatformAdmin(req);
+    ok(res, q.all(db, `SELECT * FROM events WHERE status = 'FAILED' AND attempts >= 3 ORDER BY id DESC LIMIT 100`));
+  });
+
   void created; void PLAN_MATRIX;
 }
 

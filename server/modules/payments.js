@@ -45,6 +45,9 @@ export function createIntent(db, { tenantId, orderId = null, customerId = null, 
   const existing = q.one(db, `SELECT * FROM payment_intents WHERE tenant_id = ? AND idempotency_key = ?`, tenantId, idempotencyKey);
   if (existing) return { intent: existing, replayed: true };
   if (!getProvider(provider)) throw err.unprocessable(`Unknown provider: ${provider}`);
+  // Tenant payment isolation (§32): a tenant may disable a provider entirely — fail closed everywhere.
+  const pcfg = q.one(db, `SELECT enabled FROM payments_config WHERE tenant_id = ? AND provider = ?`, tenantId, provider);
+  if (pcfg && !pcfg.enabled) throw err.unprocessable(`Provider ${provider} is disabled for this business`);
   if (!Number.isInteger(amount) || amount <= 0) throw err.unprocessable('amount must be a positive integer (minor units)');
   const intentId = id('pi');
   q.run(db, `INSERT INTO payment_intents

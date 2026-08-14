@@ -22,8 +22,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKIP_VALIDATE = process.argv.includes('--skip-validate');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
-const EXCLUDE_DIRS = new Set(['.git', 'data', 'out', 'node_modules']);
-const EXCLUDE_FILES = /(\.log$|^\.env(\..+)?$)/;
+const EXCLUDE_DIRS = new Set(['.git', 'data', 'out', 'node_modules', 'backups']);
+// Exclude .env and .env.* but NEVER .env.example — it is a required deliverable.
+const EXCLUDE_FILES = /(\.log$|^\.env$|^\.env\.(?!example$).+$)/;
 
 function collect(dir, base = dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {

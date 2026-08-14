@@ -13,6 +13,7 @@ export const err = {
   badRequest: (m, d) => new ApiError(400, 'BAD_REQUEST', m, d),
   unauthorized: (m = 'Authentication required') => new ApiError(401, 'UNAUTHORIZED', m),
   forbidden: (m = 'Permission denied') => new ApiError(403, 'FORBIDDEN', m),
+  planUpgrade: (m = 'Plan upgrade required') => new ApiError(403, 'PLAN_UPGRADE_REQUIRED', m),
   tenantRestricted: (m = 'Tenant access is restricted by subscription status') => new ApiError(402, 'TENANT_RESTRICTED', m),
   notFound: (m = 'Not found') => new ApiError(404, 'NOT_FOUND', m),
   conflict: (m, d) => new ApiError(409, 'CONFLICT', m, d),
@@ -98,6 +99,15 @@ export function ok(res, data, meta) { send(res, 200, meta ? { data, meta } : { d
 export function created(res, data) { send(res, 201, { data }); }
 
 /** Parse a JSON body with a hard size cap. */
+export function readRawBody(req, limitBytes = 256 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0;
+    req.on('data', c => { size += c.length; if (size > limitBytes) { reject(err.unprocessable('Body too large')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 export function readBody(req, maxBytes = 1_000_000) {
   return new Promise((resolve, reject) => {
     const chunks = []; let size = 0;

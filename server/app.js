@@ -17,6 +17,8 @@ import { registerComms } from './routes/comms.js';
 import { registerIntel } from './routes/intel.js';
 import { registerSettings } from './routes/settings.js';
 import { registerAdmin } from './routes/admin.js';
+import { registerKeys } from './routes/keys.js';
+import { registerFileRoutes, serveBrandLogo } from './routes/files.js';
 import { q } from './db/connection.js';
 import { config } from './config.js';
 
@@ -82,6 +84,9 @@ export function buildApp(db) {
   registerIntel(router, db);
   registerSettings(router, db);
   registerAdmin(router, db);
+  registerKeys(router, db);
+  registerFileRoutes(router, db);
+  router.get('/api/v1/public/tenants/:code/logo', (req, res) => serveBrandLogo(db, req, res, req.params.code));
 
   return http.createServer(async (req, res) => {
     if (req.url.startsWith('/api/') || ['/health', '/ready'].includes(new URL(req.url, 'http://x').pathname)) {

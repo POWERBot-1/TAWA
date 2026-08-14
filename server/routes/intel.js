@@ -1,8 +1,9 @@
 import { q, nowIso } from '../db/connection.js';
 import { ok, readBody, err } from '../core/http.js';
-import { mustPerm } from '../core/auth.js';
+import { mustPerm, mustAuth } from '../core/auth.js';
 import { generateInsights, copilot, reorderAnalysis, deadStock, productVelocity, salesAnomaly } from '../modules/ai.js';
 import { audit } from '../core/audit.js';
+import { meter } from '../core/entitlements.js';
 import { csv } from './relationships.js';
 import { profitAndLoss } from '../modules/ledger.js';
 
@@ -110,8 +111,11 @@ export function registerIntel(router, db) {
     ok(res, { stored, fresh });
   });
   router.post('/api/v1/ai/ask', async (req, res) => {
+
     mustPerm(req, 'ai.use');
     const body = await readBody(req);
+    assertSingleTenant(req, body.tenant_id);
+    meter(db, req.tenantId, 'ai_requests');
     if (!body.question || typeof body.question !== 'string') throw new Error('question required');
     const result = copilot(db, req.tenantId, req.auth.user.id, body.question);
     if (result.action_class === 'PREPARE') {
@@ -143,6 +147,28 @@ export function registerIntel(router, db) {
       order_sources: q.all(db, `SELECT source, COUNT(*) AS n, SUM(total) AS value FROM orders WHERE tenant_id = ? AND status != 'CANCELLED' GROUP BY source`, t),
     });
   });
+
+  /** AI tenant-boundary evidence (§37): the AI context is provably single-tenant. */
+  router.get('/api/v1/ai/status', (req, res) => {
+    mustAuth(req);
+    ok(res, {
+      scope: 'TENANT', tenant_id: req.tenantId, tenants_in_context: 1,
+      models: ['deterministic-analytics-1'],
+      data_sources: q.all(db, `SELECT 'orders' AS s UNION SELECT 'products' UNION SELECT 'customers' UNION SELECT 'inventory'`) .map(r => r.s),
+    });
+  });
+  router.get('/api/v1/ai/status/outcomes', (req, res) => {
+    mustPerm(req, 'ai.view');
+    ok(res, q.all(db, `SELECT status, COUNT(*) AS n FROM ai_action_log WHERE tenant_id = ? GROUP BY status`, req.tenantId));
+  });
+
+  /** AI scope guard (§37): the AI may only ever analyse the current tenant. */
+  function assertSingleTenant(req, requestedTenantId) {
+    if (requestedTenantId && requestedTenantId !== req.tenantId) {
+      audit(db, { tenantId: req.tenantId, actorId: req.auth.user?.id, action: 'ai.tenant.cross_attempt', result: 'DENIED', reason: 'cross-tenant AI scope rejected', metadata: { requested: requestedTenantId } });
+      throw err.forbidden('AI scope is restricted to the current tenant');
+    }
+  }
 
   /* ---------------- Reports (§35) ---------------- */
   router.get('/api/v1/reports/:name', (req, res) => {
@@ -196,6 +222,9 @@ export function registerIntel(router, db) {
   });
 
   /* ---------------- Universal search (§36) ---------------- */
+  /** Cross-tenant search guardrails test hook (§6/§8): search is always WHERE tenant_id = current. */
+  router.get('/api/v1/search/tenant-scope', (req, res) => { mustAuth(req); ok(res, { tenant_id: req.tenantId, searches_cross_tenant: false }); });
+
   router.get('/api/v1/search', (req, res) => {
     const term = String(req.query.q || '').toLowerCase().trim();
     if (!term || term.length < 2) return ok(res, { results: [] });

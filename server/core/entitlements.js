@@ -111,7 +111,7 @@ export function requireEntitlement(db, req, code) {
   }
   const { set } = tenantEntitlements(db, tenant.id);
   if (!set.has(code)) {
-    throw err.forbidden(`Feature "${code}" is not included in the current plan. Upgrade to unlock it.`);
+    throw err.planUpgrade(`Feature "${code}" is not included in the current plan. Upgrade to unlock it.`);
   }
   return true;
 }
@@ -119,6 +119,20 @@ export function requireEntitlement(db, req, code) {
 /** Convenience middleware factory for route gating. */
 export function gate(db, code) {
   return (req) => requireEntitlement(db, req, code);
+}
+
+/** Plan capacity limits (§18): enforced server-side at create time. */
+export function enforcePlanLimit(db, tenantId, resource) {
+  const sub = q.one(db, `SELECT plan_id FROM subscriptions WHERE tenant_id = ?`, tenantId);
+  const plan = PLANS.find(p => p.id === (sub?.plan_id || 'FREE')) || PLANS[0];
+  const limits = { users: plan.seats, branches: plan.branches, products: plan.products };
+  const max = limits[resource];
+  if (!max || max < 0) return; // unlimited
+  const table = { users: 'users', branches: 'branches', products: 'products' }[resource];
+  const cur = q.one(db, `SELECT COUNT(*) AS n FROM ${table} WHERE tenant_id = ?`, tenantId).n;
+  if (cur >= max) {
+    throw err.forbidden(`Plan limit reached: ${resource} (${cur}/${max} on ${plan.id}). Upgrade to add more.`, { code: 'PLAN_LIMIT_REACHED' });
+  }
 }
 
 /** Usage metering seam (§14). Server-side counters only. */

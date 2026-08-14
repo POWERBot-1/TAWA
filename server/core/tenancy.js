@@ -76,6 +76,18 @@ export function tenancyMiddleware(db) {
   };
 }
 
+/** 2nd golden-rule conformance probe: evidence when a foreign-tenant id is known to the caller. */
+export function crossTenantProbe(db, req, guessedId) {
+  const tid = req.tenantId;
+  if (!tid || !guessedId) return null;
+  for (const t of ['products','orders','customers','suppliers','workers','brokers','files','warehouses','payment_intents','deliveries','quotes','leads']) {
+    if (q.one(db, `SELECT 1 AS x FROM ${t} WHERE id = ? AND tenant_id != ?`, guessedId, tid)) {
+      return { result: 'CROSS_TENANT_ID_KNOWN', table: t };
+    }
+  }
+  return null;
+}
+
 /** Resolve tenant by host for storefront/branding (public, non-trusting). */
 export function tenantByHost(db, host) {
   if (!host) return null;

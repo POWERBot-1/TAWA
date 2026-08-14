@@ -80,9 +80,9 @@ export function makeFixture(db, tenantId, { stock = 100, costPrice = 50000, reta
   return { warehouse: wh, product: prod, product2: prod2, customer: cust };
 }
 
-export async function login(base, email, password) {
+export async function login(base, email, password, headers = {}) {
   const res = await fetch(`${base}/api/v1/auth/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify({ email, password }),
   });
   const json = await res.json();

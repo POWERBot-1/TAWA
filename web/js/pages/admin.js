@@ -78,7 +78,8 @@ export async function render(el) {
             r.status === 'ACTIVE' ? btn('Suspend', { size: 'sm', cls: 'danger', onClick: () => setStatus(r, 'SUSPENDED', 'Suspending cuts ALL writes immediately (reads still allowed). Data is preserved.') }) : null,
             r.status === 'SUSPENDED' ? btn('Restore', { size: 'sm', cls: 'primary', onClick: () => setStatus(r, 'ACTIVE', 'Restoring re-enables full access.') }) : null,
             r.status === 'ACTIVE' ? btn('Restrict', { size: 'sm', onClick: () => setStatus(r, 'RESTRICTED', 'Restricted = read-only mode for the tenant.') }) : null,
-            r.status === 'RESTRICTED' ? btn('Restore', { size: 'sm', cls: 'primary', onClick: () => setStatus(r, 'ACTIVE', 'Restoring re-enables full access.') }) : null) },
+            r.status === 'RESTRICTED' ? btn('Restore', { size: 'sm', cls: 'primary', onClick: () => setStatus(r, 'ACTIVE', 'Restoring re-enables full access.') }) : null,
+            btn('Plan', { size: 'sm', ghost: true, ico: 'shield', onClick: () => planModal(r) })) },
         ], rows),
       }));
 
@@ -92,10 +93,27 @@ export async function render(el) {
       } catch (e) { presentError(e); }
     }
 
+    function planModal(r) {
+      const sel = select(['FREE', 'STARTER', 'BUSINESS', 'PROFESSIONAL', 'ENTERPRISE']);
+      sel.value = r.plan_id || 'FREE';
+      const submit = btn('Change plan', { cls: 'primary', onClick: async () => {
+        try {
+          await api.post(`/api/v1/admin/tenants/${r.id}/plan`, { plan_id: sel.value });
+          document.getElementById('overlays').replaceChildren();
+          toast.ok('Plan changed', `${r.code}: ${r.plan_id} → ${sel.value}. Entitlements re-evaluate on the next request.`);
+          paint();
+        } catch (e) { presentError(e); }
+      } });
+      modal({ title: `Change plan — ${r.business_name || r.name}`, sub: 'Immediate effect; usage limits and feature gates follow the new plan.', ico: 'shield', width: 'narrow',
+        body: field('PLAN', sel), foot: h('div', { class: 'right' }, submit) });
+    }
+
     function provisionModal() {
       const code = input({ placeholder: 'kama-hardware' });
       const name = input({ placeholder: 'Kama Hardware Ltd' });
       const plan = select(['FREE', 'STARTER', 'PROFESSIONAL', 'BUSINESS', 'ENTERPRISE']);
+      void 0;
+
       const ownerName = input({ placeholder: 'Owner full name' });
       const ownerEmail = input({ type: 'email', placeholder: 'owner@business.co.ke' });
       const ownerPass = input({ type: 'password', placeholder: 'Strong temp password' });

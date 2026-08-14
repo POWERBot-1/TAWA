@@ -97,7 +97,7 @@ if (!SKIP_API) {
     const h = await (await get('/health')).json();
     const rd = await (await get('/ready')).json();
     const meta = await (await get('/api/v1/meta')).json();
-    (h.status === 'ok' && rd.status === 'ready' && rd.tenants === 2 && meta.modules?.length >= 15)
+    (h.status === 'ok' && rd.status === 'ready' && rd.tenants === 3 && meta.modules?.length >= 15)
       ? ok(`health/ready/meta — ${rd.tenants} demo tenants, ${meta.modules.length} modules`)
       : fail('health/ready/meta', JSON.stringify({ h, rd, mods: meta.modules?.length }));
 

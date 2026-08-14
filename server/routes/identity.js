@@ -4,7 +4,8 @@ import { verifyPassword, hashPassword, createSession, revokeSession, clearSessio
 import { tenantByHost } from '../core/tenancy.js';
 import { audit } from '../core/audit.js';
 import { ROLE_TEMPLATES } from '../core/rbac.js';
-import { tenantEntitlements, usageFor } from '../core/entitlements.js';
+import { tenantEntitlements, usageFor, PLANS, enforcePlanLimit } from '../core/entitlements.js';
+import { provisionTenant } from './admin.js';
 import { config } from '../config.js';
 
 const failedAttempts = new Map(); // lightweight login throttling
@@ -121,6 +122,7 @@ export function registerIdentity(router, db) {
 
   router.post('/api/v1/users', async (req, res) => {
     mustPerm(req, 'users.manage');
+    enforcePlanLimit(db, req.tenantId, 'users');
     const body = await readBody(req);
     const email = reqStr(body.email, 'email').toLowerCase();
     if (q.one(db, `SELECT id FROM users WHERE lower(email) = ?`, email)) throw err.conflict('Email already in use');
@@ -166,10 +168,81 @@ export function registerIdentity(router, db) {
       .map(r => ({ ...r, permissions: q.all(db, `SELECT permission FROM role_permissions WHERE role_id = ?`, r.id).map(p => p.permission) }));
     ok(res, { roles, templates: Object.keys(ROLE_TEMPLATES) });
   });
+
+  /** Public plan catalogue for self-service signup (§14, §57). */
+  router.get('/api/v1/public/plans', (_req, res) => {
+    const rows = (PLANS || []).map(p => ({ id: p.id, name: p.name, price: p.price, seats: p.seats, branches: p.branches, products: p.products, sort: p.sort }))
+      .sort((a, b) => (a.sort || 0) - (b.sort || 0));
+    ok(res, rows);
+  });
+
+  /** Self-service tenant provisioning (§20, §57, §73): no code change, no developer. */
+  router.post('/api/v1/public/signup', async (req, res) => {
+    const body = await readBody(req);
+    const code = reqStr(body.business_code, 'business_code', { min: 3, max: 30 }).toLowerCase();
+    if (!/^[a-z0-9-]+$/.test(code)) throw err.unprocessable('business_code must be lowercase letters, digits, hyphens');
+    if (q.one(db, `SELECT id FROM tenants WHERE code = ?`, code)) throw err.conflict(`Business code "${code}" is already taken`);
+    const email = reqStr(body.email, 'email').toLowerCase();
+    if (q.one(db, `SELECT id FROM users WHERE lower(email) = ?`, email)) throw err.conflict('A user with this email already exists');
+    const password = reqStr(body.password, 'password', { min: 10 });
+    if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) throw err.unprocessable('Password must include an uppercase letter and a digit');
+    const plan_id = PLANS.some(p => p.id === body.plan_id) ? body.plan_id : PLANS[0].id;
+    const result = provisionTenant(db, {
+      code, name: reqStr(body.business_name, 'business_name'), planId: plan_id,
+      ownerEmail: email, ownerName: reqStr(body.owner_name, 'owner_name'), ownerPassword: password,
+      industry: optStr(body.industry, 'industry') || 'HARDWARE',
+      branding: { business_name: reqStr(body.business_name, 'business_name'), color_primary: optStr(body.color_primary, 'color_primary'), color_accent: optStr(body.color_accent, 'color_accent') },
+    });
+    // Opinionated hardware-business defaults (§70) so the tenant is operational on first login.
+    const hq = id('br');
+    q.run(db, `INSERT INTO branches (id, tenant_id, code, name, is_active, created_at) VALUES (?,?,?,?,1,?)`, hq, result.tenant.id, 'HQ', 'Head Office', nowIso());
+    q.run(db, `INSERT INTO warehouses (id, tenant_id, branch_id, code, name, is_active, created_at) VALUES (?,?,?,?,?,1,?)`, id('wh'), result.tenant.id, hq, 'MAIN', 'Main Store', nowIso());
+    for (const [k, v] of [['tax_mode', 'INCLUSIVE'], ['default_currency', 'KES'], ['onboarding_done', '0'], ['receipt_footer', 'Thank you for your business']]) {
+      q.run(db, `INSERT INTO config_keys (id, tenant_id, key, value, created_at, updated_at) VALUES (?,?,?,?,?,?)`, id('cfg'), result.tenant.id, k, v, nowIso(), nowIso());
+    }
+    q.run(db, `INSERT INTO pos_settings (id, tenant_id, allow_credit, allow_discount, receipt_show_tax, updated_at) VALUES (?,?,1,1,1,?)`, id('pos'), result.tenant.id, nowIso());
+    audit(db, { tenantId: result.tenant.id, action: 'tenant.signup', resource: 'tenant', resourceId: result.tenant.id, metadata: { plan_id, via: 'public_signup' } });
+    created(res, { tenant: result.tenant, owner: { email }, plan_id, trial_days: 14, next: 'Log in and complete onboarding.' });
+  });
+
+  /** Onboarding wizard state (§21). */
+  router.get('/api/v1/onboarding', (req, res) => {
+    const auth = mustAuth(req);
+    const t = auth.session.tenant_id;
+    if (!t) throw err.forbidden('Tenant context required');
+    ok(res, {
+      business_profile: !!q.one(db, `SELECT 1 AS x FROM tenant_branding WHERE tenant_id = ? AND business_name IS NOT NULL AND business_name != ''`, t),
+      branches: q.one(db, `SELECT COUNT(*) AS n FROM branches WHERE tenant_id = ?`, t).n,
+      warehouses: q.one(db, `SELECT COUNT(*) AS n FROM warehouses WHERE tenant_id = ?`, t).n,
+      users: q.one(db, `SELECT COUNT(*) AS n FROM users WHERE tenant_id = ?`, t).n,
+      products: q.one(db, `SELECT COUNT(*) AS n FROM products WHERE tenant_id = ?`, t).n,
+      payment_config: !!q.one(db, `SELECT 1 AS x FROM payments_config WHERE tenant_id = ?`, t),
+      config: Object.fromEntries(q.all(db, `SELECT key, value FROM config_keys WHERE tenant_id = ?`, t).map(r => [r.key, r.value])),
+      done: q.one(db, `SELECT value FROM config_keys WHERE tenant_id = ?AND key = 'onboarding_done'`, t)?.value === '1',
+    });
+  });
+  router.put('/api/v1/onboarding', async (req, res) => {
+    mustPerm(req, 'settings.manage');
+    const body = await readBody(req);
+    if (body.config && typeof body.config === 'object') {
+      for (const [k, v] of Object.entries(body.config).slice(0, 40)) {
+        q.run(db, `INSERT INTO config_keys (id, tenant_id, key, value, created_at, updated_at) VALUES (?,?,?,?,?,?)
+          ON CONFLICT(tenant_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          id('cfg'), req.tenantId, String(k).slice(0, 60), String(v).slice(0, 400), nowIso(), nowIso());
+      }
+    }
+    if (body.done === true) {
+      q.run(db, `INSERT INTO config_keys (id, tenant_id, key, value, created_at, updated_at) VALUES (?,?,'onboarding_done','1',?,?)
+        ON CONFLICT(tenant_id, key) DO UPDATE SET value = '1', updated_at = excluded.updated_at`, id('cfg'), req.tenantId, nowIso(), nowIso());
+    }
+    audit(db, { tenantId: req.tenantId, actorId: req.auth.user.id, action: 'onboarding.update' });
+    ok(res, { saved: true });
+  });
 }
 
 function resolveAndAudit(db, req, action) {
   if (req.auth) audit(db, { tenantId: req.auth.user.tenant_id, actorId: req.auth.user.id, action, ip: clientIp(req) });
+  if (req.auth?.user && action === 'auth.logout') audit(db, { tenantId: req.auth.user.tenant_id, actorId: req.auth.user.id, action });
 }
 
 function publicUser(db, user) {

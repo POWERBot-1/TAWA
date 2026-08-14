@@ -1,9 +1,12 @@
 import { q, id, nowIso, tx } from '../db/connection.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { ok, created, err, readBody, reqStr, optStr, reqOneOf } from '../core/http.js';
 import { mustPerm } from '../core/auth.js';
 import { audit } from '../core/audit.js';
 import { PLANS, PLAN_MATRIX, tenantEntitlements, ENTITLEMENTS, usageFor } from '../core/entitlements.js';
-import { providerHealth } from '../adapters/payments.js';
+import { providerHealth, PAYMENT_PROVIDERS } from '../adapters/payments.js';
 import { MESSAGING_PROVIDERS } from '../adapters/messaging.js';
 
 /** WCAG relative-luminance contrast check — tenants can't pick inaccessible brands (spec §40). */
@@ -181,6 +184,85 @@ export function registerSettings(router, db) {
     audit(db, { tenantId: req.tenantId, actorId: req.auth.user.id, action: 'domain.add', metadata: { host } });
     created(res, { host, verification: 'pending — configure DNS then verify' });
   });
+  /** Per-tenant payment provider configuration (§32). Secrets stay server-side; clients see metadata only. */
+  router.get('/api/v1/settings/payment-config', (req, res) => {
+    mustPerm(req, 'settings.manage');
+    const rows = q.all(db, `SELECT provider, enabled, mode, credentials_ref, metadata, updated_at FROM payments_config WHERE tenant_id = ?`, req.tenantId);
+    const byProvider = Object.fromEntries(rows.map(r => [r.provider, { ...r, credentials_ref: r.credentials_ref ? '••••' + String(r.credentials_ref).slice(-4) : null }]));
+    ok(res, Object.keys(PAYMENT_PROVIDERS).map(code => ({
+      provider: code, label: PAYMENT_PROVIDERS[code].label, environment: PAYMENT_PROVIDERS[code].environment,
+      ...(byProvider[code] || { enabled: 1, mode: 'sandbox', credentials_ref: null, metadata: null }),
+    })));
+  });
+  router.put('/api/v1/settings/payment-config/:provider', async (req, res) => {
+    mustPerm(req, 'settings.manage');
+    const provider = req.params.provider;
+    if (!PAYMENT_PROVIDERS[provider]) throw err.notFound('Unknown provider');
+    const body = await readBody(req);
+    q.run(db, `INSERT INTO payments_config (id, tenant_id, provider, enabled, mode, credentials_ref, metadata, updated_at)
+      VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(tenant_id, provider) DO UPDATE SET enabled = excluded.enabled, mode = excluded.mode,
+        credentials_ref = COALESCE(excluded.credentials_ref, payments_config.credentials_ref), metadata = excluded.metadata, updated_at = excluded.updated_at`,
+      id('pc'), req.tenantId, provider, body.enabled === false ? 0 : 1, reqOneOf(body.mode || 'sandbox', 'mode', ['sandbox', 'live']),
+      optStr(body.credentials_ref, 'credentials_ref', { max: 200 }), body.metadata ? JSON.stringify(body.metadata).slice(0, 2000) : null, nowIso());
+    audit(db, { tenantId: req.tenantId, actorId: req.auth.user.id, action: 'payment.config', resource: 'payments_config', metadata: { provider, enabled: body.enabled !== false } });
+    ok(res, { provider, enabled: body.enabled !== false });
+  });
+  router.post('/api/v1/settings/payment-config/:provider/test', async (req, res) => {
+    mustPerm(req, 'settings.manage');
+    const provider = req.params.provider;
+    if (!PAYMENT_PROVIDERS[provider]) throw err.notFound('Unknown provider');
+    // Honesty bar: sandbox adapters echo; there is no live-provider handshake in this environment.
+    created(res, { provider, status: 'ONLINE', environment: PAYMENT_PROVIDERS[provider].environment, sandbox: true, note: 'Sandbox adapter verification — no real provider call was made.' });
+  });
+
+  /** Tenant data export (§45): the business owns its data. */
+  router.get('/api/v1/settings/export', (req, res) => {
+    mustPerm(req, 'exports.view');
+    const t = req.tenantId;
+    const tables = ['products','categories','customers','suppliers','workers','brokers','orders','order_items','quotes','quote_items',
+      'inventory_items','inventory_movements','payments','payment_intents','credit_accounts','credit_transactions','expenses','deliveries',
+      'branches','warehouses','leads','commissions','purchase_orders','po_items','payroll_runs','payroll_items','campaigns','promotions','notifications'];
+    const data = {};
+    for (const tbl of tables) {
+      try { data[tbl] = q.all(db, `SELECT * FROM ${tbl} WHERE tenant_id = ? LIMIT 5000`, t); }
+      catch (e) { data[tbl] = { skipped: true, reason: e.message }; }
+    }
+    data.tenant = q.one(db, `SELECT id, code, name, industry, status, created_at FROM tenants WHERE id = ?`, t);
+    data.branding = q.one(db, `SELECT * FROM tenant_branding WHERE tenant_id = ?`, t);
+    data.config_keys = q.all(db, `SELECT key, value FROM config_keys WHERE tenant_id = ?`, t);
+    data.payments_config = q.all(db, `SELECT provider, enabled, mode, updated_at FROM payments_config WHERE tenant_id = ?`, t); // credentials never exported
+    audit(db, { tenantId: t, actorId: req.auth.user.id, action: 'tenant.export', metadata: { tables: tables.length } });
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="tawa-export-${req.tenant.code}-${new Date().toISOString().slice(0, 10)}.json"` });
+    res.end(JSON.stringify({ exported_at: nowIso(), format: 'tawa-export/1', tenant: req.tenant.code, data }, null, 1));
+  });
+
+  /** Tenant-scoped backup pack (§46): same boundary as export, plus generated_at manifest. */
+  router.get('/api/v1/settings/backup', (req, res) => {
+    mustPerm(req, 'settings.manage');
+    const t = req.tenantId;
+    const pack = { format: 'tawa-backup/1', generated_at: nowIso(), tenant: req.tenant.code, note: 'Tenant-scoped logical backup. Platform-level physical backups are handled by scripts/backup.js.' };
+    for (const tbl of ['tenants','tenant_branding','tenant_domains','config_keys','pos_settings','payments_config','users','roles','role_permissions','user_roles',
+      'products','categories','units','customers','suppliers','workers','brokers','orders','order_items','quotes','quote_items','inventory_items','inventory_movements',
+      'payments','payment_intents','refunds','credit_accounts','credit_transactions','expenses','ledger_accounts','journal_entries','journal_lines','deliveries',
+      'branches','warehouses','leads','commissions','purchase_requisitions','purchase_requisition_items','purchase_orders','po_items','goods_receipts','grn_items','supplier_invoices',
+      'payroll_runs','payroll_items','attendance','worker_tasks','campaigns','promotions','notifications','alert_rules','automation_rules','ai_insights','ai_action_log','files']) {
+      if (tbl === 'payments_config') {
+        pack[tbl] = q.all(db, `SELECT id, tenant_id, provider, enabled, mode, metadata, updated_at FROM payments_config WHERE tenant_id = ?`, t);
+      } else if (tbl === 'tenants') {
+        pack[tbl] = q.all(db, `SELECT * FROM tenants WHERE id = ?`, t);
+      } else if (tbl === 'files') {
+        pack[tbl] = q.all(db, `SELECT id, tenant_id, tenant_code, kind, name, mime, bytes, sha256, width, height, created_at, created_by, substr(quote(data),1,64) AS data_preview FROM files WHERE tenant_id = ?`, t);
+      } else {
+        try { pack[tbl] = q.all(db, `SELECT * FROM ${tbl} WHERE tenant_id = ? LIMIT 10000`, t); }
+        catch (e) { pack[tbl] = { skipped: true, reason: e.message }; }
+      }
+    }
+    audit(db, { tenantId: t, actorId: req.auth.user.id, action: 'tenant.backup' });
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="tawa-backup-${req.tenant.code}-${new Date().toISOString().slice(0, 10)}.json"` });
+    res.end(JSON.stringify(pack));
+  });
+
   void created;
 }
 

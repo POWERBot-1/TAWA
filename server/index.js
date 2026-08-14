@@ -10,7 +10,7 @@ if (applied.length) console.log(`[tawa] applied ${applied.length} migration(s): 
 
 if (process.argv.includes('--seed')) {
   const r = seedIfEmpty(db);
-  if (r.seeded) console.log('[tawa] demo data seeded (ALPHA HARDWARE + BUILDPRO SUPPLIES + platform admin)');
+  if (r.seeded) console.log('[tawa] demo data seeded (ALPHA HARDWARE + BUILDPRO SUPPLIES + KILIMANI BUILDERS + platform admin)');
 }
 
 const server = buildApp(db);

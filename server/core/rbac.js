@@ -42,6 +42,7 @@ export const PERMISSIONS = [
   'alerts.view', 'alerts.manage', 'automation.manage',
   // admin
   'users.manage', 'roles.manage', 'branches.manage', 'settings.manage', 'branding.manage',
+  'apikeys.view', 'apikeys.manage', 'files.view', 'files.manage', 'exports.view',
   'audit.view', 'integrations.manage', 'billing.manage',
 ];
 

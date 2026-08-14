@@ -3,6 +3,7 @@ import { ok, created, err, readBody, reqStr, optStr, reqNum, reqMoney, reqOneOf,
 import { mustPerm, hasPerm } from '../core/auth.js';
 import { audit } from '../core/audit.js';
 import { productRecommendations } from '../modules/ai.js';
+import { enforcePlanLimit, meter } from '../core/entitlements.js';
 
 const UNITS = ['piece', 'box', 'packet', 'bag', 'roll', 'meter', 'kg', 'litre', 'set', 'carton', 'bundle', 'pallet', 'length', 'sheet', 'drum'];
 
@@ -62,6 +63,7 @@ export function registerCatalog(router, db) {
 
   router.post('/api/v1/products', async (req, res) => {
     mustPerm(req, 'catalog.manage');
+    enforcePlanLimit(db, req.tenantId, 'products');
     const body = await readBody(req);
     const v = validateProduct(body);
     if (q.one(db, `SELECT id FROM products WHERE tenant_id = ? AND sku = ?`, req.tenantId, v.sku)) throw err.conflict(`SKU ${v.sku} already exists`);

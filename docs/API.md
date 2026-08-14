@@ -32,11 +32,14 @@
 |---|---|
 | GET | `/api/v1/admin/overview` |
 | GET | `/api/v1/admin/tenants` |
+| POST | `/api/v1/admin/tenants/:id/plan` |
 | POST | `/api/v1/admin/tenants/:id/status` |
 | POST | `/api/v1/admin/tenants` |
 | GET | `/api/v1/admin/audit` |
 | GET | `/api/v1/admin/integrity` |
 | GET | `/api/v1/admin/usage` |
+| GET | `/api/v1/admin/events` |
+| GET | `/api/v1/admin/events/dlq` |
 
 ## Catalog, Products & Pricing — `server/routes/catalog.js`
 
@@ -77,6 +80,20 @@
 | GET | `/api/v1/autopay/rules` |
 | POST | `/api/v1/autopay/rules` |
 | POST | `/api/v1/autopay/rules/:id/toggle` |
+| GET | `/api/v1/notification-config` |
+| PUT | `/api/v1/notification-config` |
+
+## files — `server/routes/files.js`
+
+| Method | Path |
+|---|---|
+| POST | `/api/v1/files` |
+| POST | `/api/v1/files/logo` |
+| GET | `/api/v1/files` |
+| GET | `/api/v1/files/:id/raw` |
+| GET | `/api/v1/files/:id/info` |
+| GET | `/api/v1/files/:id` |
+| DELETE | `/api/v1/files/:id` |
 
 ## Identity, Auth & Users — `server/routes/identity.js`
 
@@ -92,6 +109,10 @@
 | POST | `/api/v1/users` |
 | PATCH | `/api/v1/users/:id` |
 | GET | `/api/v1/roles` |
+| GET | `/api/v1/public/plans` |
+| POST | `/api/v1/public/signup` |
+| GET | `/api/v1/onboarding` |
+| PUT | `/api/v1/onboarding` |
 
 ## Dashboard, Analytics, AI, Reports, Search — `server/routes/intel.js`
 
@@ -103,7 +124,10 @@
 | GET | `/api/v1/ai/reorder` |
 | GET | `/api/v1/ai/log` |
 | GET | `/api/v1/analytics/overview` |
+| GET | `/api/v1/ai/status` |
+| GET | `/api/v1/ai/status/outcomes` |
 | GET | `/api/v1/reports/:name` |
+| GET | `/api/v1/search/tenant-scope` |
 | GET | `/api/v1/search` |
 
 ## Inventory & Warehouses — `server/routes/inventory.js`
@@ -120,6 +144,15 @@
 | POST | `/api/v1/inventory/receive` |
 | POST | `/api/v1/inventory/adjust` |
 | POST | `/api/v1/inventory/transfer` |
+
+## keys — `server/routes/keys.js`
+
+| Method | Path |
+|---|---|
+| GET | `/api/v1/api-keys` |
+| POST | `/api/v1/api-keys` |
+| POST | `/api/v1/api-keys/:id/revoke` |
+| DELETE | `/api/v1/api-keys/:id` |
 
 ## Deliveries & Logistics — `server/routes/logistics.js`
 
@@ -251,6 +284,11 @@
 | GET | `/api/v1/settings/tenant` |
 | PATCH | `/api/v1/settings/tenant` |
 | POST | `/api/v1/settings/domains` |
+| GET | `/api/v1/settings/payment-config` |
+| PUT | `/api/v1/settings/payment-config/:provider` |
+| POST | `/api/v1/settings/payment-config/:provider/test` |
+| GET | `/api/v1/settings/export` |
+| GET | `/api/v1/settings/backup` |
 
 ## Workforce, Attendance & Payroll — `server/routes/workforce.js`
 
@@ -271,4 +309,4 @@
 
 ---
 
-_173 routes across 14 modules. Source of truth: the route registrations themselves._
+_201 routes across 16 modules. Source of truth: the route registrations themselves._

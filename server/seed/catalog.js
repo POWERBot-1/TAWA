@@ -10,8 +10,11 @@ export const UNITS = [
 // Prices in KES minor units implied via KES major amounts — converted by seeder.
 export function catalogFor(code) {
   if (code === 'buildpro') return BUILDPRO;
+  if (code === 'kilimani') return KILIMANI;
   return ALPHA;
 }
+
+
 
 const ALPHA = {
   categories: ['Cement & Concrete', 'Steel & Rebar', 'Roofing', 'Plumbing & PVC', 'Electrical', 'Paint & Finishing', 'Tools', 'Timber & Boards', 'Fasteners', 'Safety'],
@@ -135,3 +138,35 @@ const BUILDPRO = {
   ],
   synonyms: [['cpvc bend', 'cpvc elbow'], ['mabati', 'mabati'], ['kokoto', 'ballast'], ['barbati', 'rebar']],
 };
+
+/** KILIMANI BUILDERS: leaner contractor-yard assortment — renames + price deltas from the ALPHA base. */
+function kilimaniVariant() {
+  const rename = {
+    'Cement': 'Cement (Kilimani batch)', 'Rebar': 'Rebar (cut-to-length)', 'Mabati': 'Mabati (prepainted)',
+    'PVC Pipe': 'PVC Pipe (heavy gauge)', 'Paint': 'Paint (contractor buckets)', 'Board': 'Board (kiln-dried)',
+  };
+  const products = ALPHA.products
+    .filter((_, i) => i % 3 !== 2) // two-thirds of the catalogue — a leaner yard
+    .map((p, i) => {
+      const next = [...p];
+      next[0] = p[0].replace(/^[A-Z]+/, m => 'K' + m.slice(0, 3)); // distinct SKU space (KCEM-… etc.)
+      for (const [k, v] of Object.entries(rename)) next[1] = next[1].includes(k) ? next[1].replace(k, v) : next[1];
+      if (typeof next[3] === 'number') next[3] = Math.round(next[3] * 0.94); // cheaper cost basis
+      if (typeof next[4] === 'number') next[4] = Math.round(next[4] * 0.97); // keener retail
+      if (typeof next[13] === 'number') next[13] = next[13] % 3; // only 3 kilimani suppliers
+      return next;
+    });
+  const skuSet = new Set(products.map(p => p[0]));
+  const ksku = (sku) => sku.replace(/^[A-Z]+/, m => 'K' + m.slice(0, 3));
+  const relations = (ALPHA.relations || [])
+    .filter(r => skuSet.has(ksku(r[0])) && skuSet.has(ksku(r[1])))
+    .map(r => [ksku(r[0]), ksku(r[1]), r[2], r[3]]);
+  return {
+    categories: ALPHA.categories.slice(0, 7),
+    suppliers: ALPHA.suppliers.slice(0, 3),
+    products,
+    relations,
+    synonyms: ALPHA.synonyms || [],
+  };
+}
+const KILIMANI = kilimaniVariant();

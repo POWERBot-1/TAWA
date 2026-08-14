@@ -10,6 +10,9 @@ const SECTIONS = [
   { id: 'branding', label: 'Branding & white-label', icon: 'palette', perm: 'branding.manage', ent: 'TAWA.WHITE_LABEL' },
   { id: 'flags', label: 'Feature flags', icon: 'flag', perm: 'settings.manage' },
   { id: 'subscription', label: 'Subscription & plans', icon: 'shield', perm: 'settings.manage' },
+  { id: 'payments', label: 'Payment providers', icon: 'wallet', perm: 'settings.manage' },
+  { id: 'onboarding', label: 'Onboarding', icon: 'gauge', perm: 'settings.manage' },
+  { id: 'data', label: 'Data & API', icon: 'database', perm: 'exports.view' },
   { id: 'integrations', label: 'Integrations', icon: 'plug', perm: 'integrations.manage' },
   { id: 'audit', label: 'Audit trail', icon: 'history', perm: 'audit.view' },
 ];
@@ -31,11 +34,141 @@ export async function render(el, ctx) {
       const view = {
         workspace: workspaceView, users: usersView, branding: brandingView, flags: flagsView,
         subscription: subscriptionView, integrations: integrationsView, audit: auditView,
+        payments: paymentsView, onboarding: onboardingView, data: dataView,
       }[section] || workspaceView;
       pane.replaceChildren(await view());
     } catch (e) {
       pane.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'card-b' }, emptyState('Unavailable', e?.message || 'Could not load this section.', 'warning'))));
     }
+  }
+
+
+  /* ---------------- payment providers (§32) ---------------- */
+  async function paymentsView() {
+    const rows = (await api.get('/api/v1/settings/payment-config')).data;
+    return h('div', { class: 'stack' },
+      card({
+        title: 'Payment providers', sub: 'Per-business provider configuration. Secrets are stored server-side and never shown here.',
+        body: h('div', { class: 'stack sm' }, rows.map(p => h('div', { class: 'row between', style: { padding: '10px 0', borderBottom: '1px solid var(--line)' } },
+          h('div', {},
+            h('div', { class: 't-main' }, p.label || p.provider),
+            h('div', { class: 't-sub' }, `${p.environment}${p.mode ? ' · mode ' + p.mode : ''}${p.credentials_ref ? ' · key ' + p.credentials_ref : ''}`)),
+          h('div', { class: 'row', style: { gap: '8px' } },
+            pill(Number(p.enabled) ? 'ENABLED' : 'DISABLED'),
+            btn(Number(p.enabled) ? 'Disable' : 'Enable', { size: 'sm', onClick: async () => {
+              await api.put(`/api/v1/settings/payment-config/${p.provider}`, { enabled: !Number(p.enabled) });
+              toast.ok('Provider updated', `${p.provider} ${Number(p.enabled) ? 'disabled — every payment flow now fails closed for it' : 'enabled'}`);
+              paintPane();
+            } }),
+            btn('Test', { size: 'sm', ghost: true, ico: 'gauge', onClick: async () => {
+              const r = await api.post(`/api/v1/settings/payment-config/${p.provider}/test`, {});
+              toast.ok(`${p.provider}: ${r.data.status}`, `${r.data.environment} adapter — ${r.data.note || 'ok'}`);
+            } }))))),
+      }),
+    );
+  }
+
+  /* ---------------- onboarding (§21) ---------------- */
+  async function onboardingView() {
+    const o = (await api.get('/api/v1/onboarding')).data;
+    const steps = [
+      ['Business profile', o.business_profile], ['Branch created', o.branches > 0], ['Warehouse created', o.warehouses > 0],
+      ['Team invited', o.users > 1], ['First product', o.products > 0], ['Payment provider configured', o.payment_config],
+    ];
+    const done = steps.filter(x => x[1]).length;
+    const tax = h('select', { class: 'select' }, ['INCLUSIVE', 'EXCLUSIVE'].map(v => h('option', { value: v, selected: (o.config?.tax_mode || 'INCLUSIVE') === v }, v)));
+    const footer = h('input', { class: 'input', value: o.config?.receipt_footer || '' });
+    const cur = h('input', { class: 'input', value: o.config?.default_currency || 'KES', maxlength: 3 });
+    return h('div', { class: 'stack' },
+      card({
+        title: `Setup progress — ${done}/${steps.length}`, ico: 'gauge',
+        sub: o.done ? 'Onboarding complete. You can revisit any step.' : 'Complete these to get fully operational.',
+        body: h('div', { class: 'stack sm' }, steps.map(([label, ok2]) =>
+          h('div', { class: 'row between', style: { padding: '8px 0', borderBottom: '1px solid var(--line)' } },
+            h('span', {}, label), pill(ok2 ? 'DONE' : 'PENDING')))),
+      }),
+      card({
+        title: 'Business rules', ico: 'settings',
+        body: h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '12px' } },
+          field('TAX MODE', tax), field('DEFAULT CURRENCY', cur), field('RECEIPT FOOTER', footer)),
+        foot: h('div', { class: 'row end', style: { gap: '8px', width: '100%' } },
+          btn('Save rules', { cls: 'primary', onClick: async () => {
+            await api.put('/api/v1/onboarding', { config: { tax_mode: tax.value, default_currency: cur.value.toUpperCase(), receipt_footer: footer.value } });
+            toast.ok('Saved', 'Business rules updated'); paintPane();
+          } }),
+          o.done ? null : btn('Mark onboarding complete', { ghost: true, onClick: async () => {
+            await api.put('/api/v1/onboarding', { done: true }); toast.ok('Onboarding complete'); paintPane();
+          } })),
+      }),
+    );
+  }
+
+  /* ---------------- data & api (§45/§46/§66) ---------------- */
+  async function dataView() {
+    const canKeys = store.can('apikeys.view') && store.has('TAWA.API');
+    const canManageKeys = store.can('apikeys.manage') && store.has('TAWA.API');
+    let keys = [];
+    if (store.can('apikeys.view')) {
+      try { keys = (await api.get('/api/v1/api-keys')).data; } catch { keys = null; }
+    }
+    const download = async (path, name) => {
+      const res = await fetch(path, { headers: { Authorization: `Bearer ${store.session?.token}` } });
+      if (!res.ok) { toast.err('Download failed', `HTTP ${res.status}`); return; }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    };
+    const keyCard = !store.can('apikeys.view') ? null :
+      (!store.has('TAWA.API') || keys === null)
+        ? card({ title: 'API access', ico: 'key', body: emptyState('API access locked', 'Programmatic API access requires the PROFESSIONAL plan or higher.', 'lock', btn('View plans', { cls: 'primary', onClick: () => go('/settings/subscription') })) })
+        : card({
+            title: 'API keys', ico: 'key',
+            sub: 'Scoped, revocable credentials for integrations. Keys are shown once at creation.',
+            body: keys.length ? table([
+              { label: 'Name', render: r => h('span', { class: 't-main' }, r.name) },
+              { label: 'Scopes', render: r => h('span', { class: 'mono tiny' }, r.scopes) },
+              { label: 'Last used', render: r => h('span', { class: 'tiny muted' }, r.last_used_at ? fmtDT(r.last_used_at) : 'never') },
+              { label: 'Status', render: r => pill(r.revoked_at ? 'REVOKED' : 'ACTIVE') },
+              { label: '', align: 'r', render: r => r.revoked_at ? null : canManageKeys ? btn('Revoke', { size: 'sm', ghost: true, onClick: async () => {
+                  if (!(await confirmBox('Revoke key?', `Integrations using "${r.name}" lose access immediately.`, 'Revoke'))) return;
+                  await api.post(`/api/v1/api-keys/${r.id}/revoke`); toast.ok('Key revoked'); paintPane();
+                } }) : null },
+            ], keys) : h('div', { class: 'faint tiny' }, 'No keys yet.'),
+            foot: canManageKeys ? h('div', { class: 'row end', style: { width: '100%' } }, btn('Create key', { cls: 'primary', ico: 'plus', onClick: () => keyModal() })) : null,
+          });
+
+    function keyModal() {
+      const name = h('input', { class: 'input', placeholder: 'e.g. ERP integration' });
+      const scopeBoxes = ['read', 'write', 'reports', 'webhooks'].map(sc =>
+        h('label', { class: 'row', style: { gap: '6px' } }, h('input', { type: 'checkbox', value: sc, checked: sc === 'read' }), sc));
+      const days = h('input', { class: 'input', type: 'number', min: 1, max: 365, placeholder: 'Expiry (days, optional)' });
+      const submit = btn('Create key', { cls: 'primary', onClick: async () => {
+        const scopes = scopeBoxes.map(l => l.querySelector('input')).filter(i => i.checked).map(i => i.value);
+        if (!name.value.trim() || !scopes.length) return toast.err('Missing', 'Name and at least one scope required');
+        try {
+          const r = await api.post('/api/v1/api-keys', { name: name.value.trim(), scopes, expires_in_days: days.value ? Number(days.value) : undefined });
+          document.getElementById('overlays').replaceChildren();
+          modal({ title: 'Store this key now', ico: 'key', body: h('div', {},
+            h('p', { class: 'faint' }, 'It is never shown again.'),
+            h('div', { class: 'mono', style: { wordBreak: 'break-all', padding: '10px', background: 'var(--surface2)', borderRadius: '8px' } }, r.data.key),
+            h('div', { class: 'row end' }, btn('Copy', { size: 'sm', onClick: async () => { await navigator.clipboard.writeText(r.data.key); toast.ok('Copied'); } }))) });
+          paintPane();
+        } catch (e) { toast.err('Create failed', e.message); }
+      } });
+      modal({ title: 'Create API key', ico: 'key', body: h('div', {}, field('NAME', name), field('SCOPES', h('div', { class: 'stack sm' }, scopeBoxes)), field('EXPIRY (DAYS)', days)), foot: h('div', { class: 'right' }, submit) });
+    }
+
+    return h('div', { class: 'stack' },
+      keyCard,
+      card({
+        title: 'Data export & backup', ico: 'download',
+        sub: 'Your business data, your property. Exports never include other businesses and never include stored provider secrets.',
+        body: h('div', { class: 'row wrap', style: { gap: '10px' } },
+          btn('Download data export (JSON)', { ico: 'download', onClick: () => download('/api/v1/settings/export', `tawa-export.json`) }),
+          store.can('settings.manage') ? btn('Download backup pack (JSON)', { ghost: true, ico: 'database', onClick: () => download('/api/v1/settings/backup', `tawa-backup.json`) }) : null),
+      }),
+    );
   }
 
   /* ---------------- workspace ---------------- */

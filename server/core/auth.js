@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { err } from './http.js';
 import { q, id, nowIso } from '../db/connection.js';
 import { config } from '../config.js';
+import { PERMISSIONS as RBAC_PERMISSIONS } from './rbac.js';
+import { meter as meterUsage } from './entitlements.js';
 import { audit } from './audit.js';
 
 const SCRYPT_N = 16384, SCRYPT_R = 8, SCRYPT_P = 1, KEYLEN = 64;
@@ -98,7 +100,11 @@ export function resolveAuth(db, req) {
   const bearer = (req.headers.authorization || '').startsWith('Bearer ')
     ? req.headers.authorization.slice(7) : null;
   const token = cookies[config.cookieName] || bearer;
-  if (!token) return null;
+  if (!token) {
+    const apiAuth = resolveApiKeyAuth(db, req.headers['x-api-key']);
+    if (apiAuth) return apiAuth;
+    return null;
+  }
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
   const sess = q.one(db, `SELECT * FROM sessions WHERE id = ?`, tokenHash);
   if (!sess || sess.revoked_at || sess.expires_at < nowIso()) return null;
@@ -111,6 +117,42 @@ export function resolveAuth(db, req) {
     for (const row of q.all(db, `SELECT permission FROM role_permissions WHERE role_id = ?`, r.id)) perms.add(row.permission);
   }
   return { user, session: sess, tokenHash, roles, perms, viaCookie: !!cookies[config.cookieName] && !bearer };
+}
+
+/* ---------------- API keys (§66): scoped, tenant-bound, revocable ---------------- */
+const KEY_SENSITIVE_DENY = ['users.manage', 'roles.manage', 'apikeys.manage', 'billing.manage', 'integrations.manage', 'branding.manage', 'audit.view'];
+function permsForScopes(scopes) {
+  const PERMISSIONS = RBAC_PERMISSIONS;
+  const out = new Set();
+  if (scopes.includes('read')) {
+    for (const p of PERMISSIONS) if (p.endsWith('.view')) out.add(p);
+  }
+  if (scopes.includes('write')) {
+    for (const p of PERMISSIONS) {
+      if (p.endsWith('.manage') || p.endsWith('.use') || p.endsWith('.create') || p.endsWith('.receive') || p.endsWith('.export')) out.add(p);
+    }
+  }
+  if (scopes.includes('reports')) { out.add('reports.view'); out.add('reports.export'); out.add('analytics.view'); }
+  for (const d of KEY_SENSITIVE_DENY) out.delete(d);
+  return out;
+}
+export function resolveApiKeyAuth(db, raw) {
+  if (!raw || typeof raw !== 'string' || !raw.startsWith('tawa_') || raw.length > 80) return null;
+  const tokenHash = crypto.createHash('sha256').update('tawa-api-key:' + raw).digest('hex');
+  const row = q.one(db, `SELECT * FROM api_keys WHERE token_hash = ?`, tokenHash);
+  if (!row || row.revoked_at) return null;
+  if (row.expires_at && row.expires_at < nowIso()) return null;
+  const tenant = q.one(db, `SELECT * FROM tenants WHERE id = ?`, row.tenant_id);
+  if (!tenant || !['ACTIVE', 'TRIAL', 'GRACE'].includes(tenant.status)) return null;
+  q.run(db, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, nowIso(), row.id);
+  try { meterUsage(db, row.tenant_id, 'api_calls'); } catch { /* metering must never break auth */ }
+  const scopes = String(row.scopes || 'read').split(',').map(s => s.trim()).filter(Boolean);
+  return {
+    user: { id: row.created_by || 'api-key', name: `API key: ${row.name}`, email: '' },
+    session: { tenant_id: row.tenant_id, csrf: null, id: row.id },
+    tokenHash: null, roles: ['API_KEY'], perms: permsForScopes(scopes),
+    viaCookie: false, fromApiKey: true, apiScopes: scopes, apiKeyId: row.id,
+  };
 }
 
 /** CSRF: cookie-based mutations must carry the session's csrf token (§40). */

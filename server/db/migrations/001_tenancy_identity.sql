@@ -211,3 +211,82 @@ CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit_events
 BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit_events
 BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END;
+
+-- API keys (§66) + tenant file storage (§42) + API usage metering (§17).
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT NOT NULL DEFAULT 'read',
+  created_at TEXT NOT NULL,
+  created_by TEXT,
+  expires_at TEXT,
+  last_used_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id);
+
+CREATE TABLE IF NOT EXISTS files (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  tenant_code TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  data BLOB NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_files_tenant ON files(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_files_kind ON files(tenant_id, kind);
+
+CREATE TABLE IF NOT EXISTS usage_events (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  meter TEXT NOT NULL,
+  actor_kind TEXT,
+  actor_id TEXT,
+  occurred_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usage_events_meter ON usage_events(tenant_id, meter, occurred_at);
+
+-- Generic tenant configuration (§69) + POS policy + per-tenant payment provider config (§32).
+CREATE TABLE IF NOT EXISTS config_keys (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  key TEXT NOT NULL,
+  value TEXT,
+  created_at TEXT,
+  updated_at TEXT,
+  UNIQUE(tenant_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_config_keys_tenant ON config_keys(tenant_id);
+
+CREATE TABLE IF NOT EXISTS pos_settings (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL UNIQUE REFERENCES tenants(id),
+  allow_credit INTEGER NOT NULL DEFAULT 1,
+  allow_discount INTEGER NOT NULL DEFAULT 1,
+  receipt_show_tax INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS payments_config (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  provider TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  mode TEXT NOT NULL DEFAULT 'sandbox',
+  credentials_ref TEXT,
+  metadata TEXT,
+  updated_at TEXT,
+  UNIQUE(tenant_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_payments_config_tenant ON payments_config(tenant_id);
+
+ALTER TABLE tenant_branding ADD COLUMN logo_file_id TEXT;

@@ -111,7 +111,7 @@ export function registerSales(router, db) {
     mustPerm(req, 'orders.cancel');
     const body = await readBody(req);
     const order = tx(db, () => cancelOrder(db, req.tenantId, req.params.id, req.auth.user.id, optStr(body.reason, 'reason')));
-    audit(db, { tenantId: req.tenantId, actorId: req.auth.user.id, action: 'order.cancel', resource: 'order', resourceId: order.id });
+    audit(db, { tenantId: req.tenantId, actorId: req.auth.user.id, action: 'order.cancel', resource: 'order', resourceId: order.id, metadata: { permission: 'orders.cancel' } });
     ok(res, order);
   });
   router.get('/api/v1/orders/:id/invoice', (req, res) => {
@@ -168,6 +168,7 @@ export function registerSales(router, db) {
       return { order: orderView(db, req.tenantId, order.id), payment: settled.payment, replayed: false };
     });
     if (result.pending) {
+      meter(db, req.tenantId, 'orders');
       audit(db, { tenantId: req.tenantId, actorId: req.auth.user.id, action: 'pos.sale_pending', resource: 'order', resourceId: result.order.id });
       return send(res, 202, { data: result });
     }

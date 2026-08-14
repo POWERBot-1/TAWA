@@ -217,6 +217,24 @@ export function registerComms(router, db) {
     audit(db, { tenantId: req.tenantId, actorId: req.auth.user.id, action: r.enabled ? 'autopay.disable' : 'autopay.enable', resource: 'autopay_rule', resourceId: r.id });
     ok(res, q.one(db, `SELECT * FROM autopay_rules WHERE id = ?`, r.id));
   });
+  /** Notification routing prefs (§39): role-targeted outbound event rules. */
+  router.get('/api/v1/notification-config', (req, res) => {
+    mustPerm(req, 'alerts.view');
+    ok(res, q.all(db, `SELECT flag, enabled FROM feature_flags WHERE tenant_id = ? AND flag LIKE 'notify_%'`, req.tenantId)
+      .map(r => ({ flag: r.flag.replace(/^notify_/, ''), enabled: !!r.enabled })));
+  });
+  router.put('/api/v1/notification-config', async (req, res) => {
+    mustPerm(req, 'alerts.manage');
+    const body = await readBody(req);
+    const allowed = ['payments_owner', 'payments_marketers', 'low_stock_storekeeper', 'credit_finance'];
+    for (const f of Object.keys(body || {})) {
+      if (!allowed.includes(f)) throw err.unprocessable(`Unknown notification flag: ${f}`);
+      q.run(db, `INSERT INTO feature_flags (tenant_id, flag, enabled) VALUES (?,?,?) ON CONFLICT(tenant_id, flag) DO UPDATE SET enabled = excluded.enabled`,
+        req.tenantId, 'notify_' + f, body[f] ? 1 : 0);
+    }
+    audit(db, { tenantId: req.tenantId, actorId: req.auth.user.id, action: 'notification.config' , metadata: body});
+    ok(res, { saved: true });
+  });
 }
 
 function segmentMatch(segment, customerId, tenantId, db) {

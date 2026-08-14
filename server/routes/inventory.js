@@ -4,6 +4,7 @@ import { mustPerm } from '../core/auth.js';
 import { audit } from '../core/audit.js';
 import { postMovement, stockLevels, valuation, positionFor } from '../modules/inventory.js';
 import { emitEvent } from '../core/events.js';
+import { enforcePlanLimit, meter } from '../core/entitlements.js';
 
 export function registerInventory(router, db) {
   router.get('/api/v1/branches', (req, res) => {
@@ -11,6 +12,7 @@ export function registerInventory(router, db) {
                        FROM branches b WHERE b.tenant_id = ? ORDER BY b.code`, req.tenantId));
   });
   router.post('/api/v1/branches', async (req, res) => {
+    enforcePlanLimit(db, req.tenantId, 'branches');
     mustPerm(req, 'branches.manage');
     const body = await readBody(req);
     const bid = id('br');
@@ -43,6 +45,16 @@ export function registerInventory(router, db) {
   });
   router.get('/api/v1/inventory/movements', (req, res) => {
     mustPerm(req, 'inventory.view');
+    if (req.query.comm === '1') {
+      mustPerm(req, 'alerts.view');
+      const filters = ['m.tenant_id = ?']; const params = [req.tenantId];
+      if (req.query.product_id) { filters.push('m.product_id = ?'); params.push(req.query.product_id); }
+      if (req.query.warehouse_id) { filters.push('m.warehouse_id = ?'); params.push(req.query.warehouse_id); }
+      if (req.query.type) { filters.push('m.type = ?'); params.push(req.query.type); }
+      return ok(res, { movements: q.all(db, `SELECT m.*, p.name AS product_name, p.sku, w.name AS warehouse_name
+        FROM inventory_movements m JOIN products p ON p.id = m.product_id JOIN warehouses w ON w.id = m.warehouse_id
+        WHERE ${filters.join(' AND ')} ORDER BY m.created_at DESC LIMIT 300`, ...params) });
+    }
     const { limit, offset, page } = pageParams(req);
     const rows = q.all(db, `SELECT m.*, p.name AS product_name, p.sku, w.name AS warehouse_name, u.name AS actor_name
       FROM inventory_movements m JOIN products p ON p.id = m.product_id JOIN warehouses w ON w.id = m.warehouse_id
